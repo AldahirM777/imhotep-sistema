@@ -1,0 +1,5 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Html5Qrcode} from 'html5-qrcode';
+import {Camera} from 'lucide-react';
+export default function Scanner({onScan}:{onScan:(code:string)=>void}){const [error,setError]=useState('');const callback=useRef(onScan);callback.current=onScan;useEffect(()=>{let active=true;const scanner=new Html5Qrcode('imhotep-reader');let last=0;scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:250,height:180}},(text:string)=>{if(Date.now()-last<1500)return;last=Date.now();navigator.vibrate?.(80);callback.current?.(text);},()=>{}).then(()=>{if(!active)void scanner.stop();}).catch((e:any)=>{console.error(e);if(active)setError('No pudimos abrir la cámara. Revisa el permiso o escribe el código manualmente.');});return()=>{active=false;if(scanner.isScanning)void scanner.stop().catch(console.error);};},[]);return <div><div className="flex gap-2 items-center mb-4 hint"><Camera size={20}/>Enfoca el código QR o de barras.</div><div id="imhotep-reader" className="rounded-xl overflow-hidden"/>{error&&<p className="notice mt-4">{error}</p>}</div>;}

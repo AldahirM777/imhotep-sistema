@@ -1,0 +1,1148 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/imhotep_sistema/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// ───────────── ENUMS ─────────────
+enum RolCodigo {
+  ADMIN_PRINCIPAL
+  ADMIN
+  SUPERVISOR_GENERAL
+  SUPERVISOR
+  ALMACENISTA
+  RH
+  COMPRAS
+  TRABAJADOR
+}
+
+enum TipoAlmacen {
+  CENTRAL
+  CONTRATISTAS
+  AREA
+}
+
+enum TipoArticulo {
+  EPP
+  HERRAMIENTA
+  CONSUMIBLE
+  MATERIAL
+}
+
+enum ModoControl {
+  SERIE
+  LOTE
+}
+// SERIE = pieza individual con QR propio; LOTE = por cantidad
+enum EstadoPieza {
+  APTA
+  NO_APTA
+  EN_REPARACION
+  EN_INSPECCION
+  BAJA
+  PERDIDA
+}
+
+enum UbicacionPieza {
+  EN_ALMACEN
+  ASIGNADA
+  EN_TRANSITO
+  EN_REPARACION
+  FUERA_DE_SERVICIO
+}
+
+enum EstadoFisico {
+  NUEVO
+  BUENO
+  REGULAR
+  DANADO
+  DESCOMPUESTO
+  PERDIDO
+  INCOMPLETO
+}
+
+enum ResultadoInspeccion {
+  APTA
+  NO_APTA
+}
+
+enum EstatusEmpleado {
+  ACTIVO
+  SUSPENDIDO
+  EN_BAJA
+  BAJA
+}
+
+enum TipoMovimiento {
+  ENTREGA
+  DEVOLUCION
+  TRASPASO_SALIDA
+  TRASPASO_ENTRADA
+  ENTRADA_COMPRA
+  ENTRADA_RENTA
+  DEVOLUCION_RENTA
+  AJUSTE_POSITIVO
+  AJUSTE_NEGATIVO
+  BAJA_ARTICULO
+  CANCELACION
+}
+
+enum EstadoMovimiento {
+  VIGENTE
+  CANCELADO
+}
+
+enum EstadoTraspaso {
+  EN_TRANSITO
+  RECIBIDO
+  RECIBIDO_CON_DIFERENCIA
+  CANCELADO
+}
+
+enum TipoSolicitud {
+  USO
+  MATERIAL
+  COMPRA
+  ENTRADA
+}
+
+enum EstadoSolicitud {
+  BORRADOR
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+  PARCIAL
+  SURTIDA
+  CANCELADA
+}
+
+enum EstadoRequisicion {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+  EN_COMPRA
+  RECIBIDA_PARCIAL
+  RECIBIDA
+  CANCELADA
+}
+
+enum EstadoPago {
+  PENDIENTE
+  PARCIAL
+  PAGADO
+  CANCELADO
+}
+
+enum EstadoBaja {
+  INICIADA
+  PENDIENTE_DEVOLUCION
+  LISTA
+  FORZADA
+  CERRADA
+}
+
+enum TipoDocumento {
+  VALE_ENTREGA
+  VALE_RESGUARDO_HERRAMIENTA
+  RESGUARDO_EPP_MENSUAL
+  VALE_EPP_MEDIA_CARTA
+  COMPROBANTE_DEVOLUCION
+  NO_ADEUDO
+  REQUISICION
+  COMPROBANTE_ENTRADA
+  VALE_TRASPASO
+  FICHA_RH
+  CONTRATO
+  ETIQUETAS_QR
+  REPORTE
+}
+
+enum EstadoWhatsapp {
+  NO_ENVIADO
+  EN_COLA
+  ENVIADO
+  ENTREGADO
+  LEIDO
+  FALLIDO
+}
+
+enum TipoAlerta {
+  STOCK_MINIMO
+  INSPECCION_POR_VENCER
+  INSPECCION_VENCIDA
+  CAPACITACION_POR_VENCER
+  CAPACITACION_VENCIDA
+  DEVOLUCION_VENCIDA
+  LIMITE_EXCEDIDO
+  RENTA_POR_VENCER
+  TRASPASO_SIN_RECIBIR
+  SOLICITUD_PENDIENTE
+  PIEZA_NO_APTA
+}
+
+enum SeveridadAlerta {
+  INFO
+  ADVERTENCIA
+  CRITICA
+}
+
+// ───────────── SEGURIDAD Y USUARIOS ─────────────
+model Rol {
+  id           String           @id @default(cuid())
+  codigo       RolCodigo        @unique
+  nombre       String
+  nivel        Int // 100 ADMIN_PRINCIPAL, 90 ADMIN, 70 SUPERVISOR_GENERAL, 50 SUPERVISOR, 30 ALMACENISTA/RH/COMPRAS, 10 TRABAJADOR
+  puedeDelegar Boolean          @default(false)
+  permisosBase RolPermisoBase[]
+  usuarios     Usuario[]
+
+  @@index([nombre])
+}
+
+model Permiso {
+  id          String           @id @default(cuid())
+  codigo      String           @unique // ej. "entregas.crear" (ver sección 5)
+  modulo      String
+  descripcion String
+  delegable   Boolean          @default(true) // false = jamás se delega (ej. "admins.crear", "datos.eliminar", "bajas.forzar")
+  roles       RolPermisoBase[]
+  usuarios    UsuarioPermiso[]
+}
+
+model RolPermisoBase {
+  rolId     String
+  permisoId String
+  rol       Rol     @relation(fields: [rolId], references: [id])
+  permiso   Permiso @relation(fields: [permisoId], references: [id])
+
+  @@id([rolId, permisoId])
+  @@index([rolId])
+  @@index([permisoId])
+}
+
+model Usuario {
+  solicitudesCreadas   SolicitudRegistroUsuario[] @relation("RegistroCreado")
+  solicitudesAprobadas SolicitudRegistroUsuario[] @relation("RegistroAprobado")
+  oculto               Boolean                    @default(false)
+  id                   String                     @id @default(cuid())
+  usuario              String                     @unique // login
+  email                String?                    @unique
+  passwordHash         String
+  nombre               String
+  telefono             String? // E.164, ej. +5218112345678
+  rolId                String
+  rol                  Rol                        @relation(fields: [rolId], references: [id])
+  superiorId           String? // jerarquía: quién lo dio de alta / de quién depende
+  superior             Usuario?                   @relation("Jerarquia", fields: [superiorId], references: [id])
+  subordinados         Usuario[]                  @relation("Jerarquia")
+  empleadoId           String?                    @unique // si el usuario también es trabajador
+  empleado             Empleado?                  @relation(fields: [empleadoId], references: [id])
+  almacenes            UsuarioAlmacen[] // alcance: almacenes que puede operar
+  permisos             UsuarioPermiso[]           @relation("PermisoDe")
+  permisosOtorgados    UsuarioPermiso[]           @relation("PermisoOtorgadoPor")
+  activo               Boolean                    @default(true)
+  debeCambiarPassword  Boolean                    @default(true)
+  intentosFallidos     Int                        @default(0)
+  bloqueadoHasta       DateTime?
+  ultimoAcceso         DateTime?
+  refreshTokens        RefreshToken[]
+  creadoEn             DateTime                   @default(now())
+  actualizadoEn        DateTime                   @updatedAt
+  eliminadoEn          DateTime?
+
+  @@index([nombre])
+  @@index([rolId])
+  @@index([superiorId])
+  @@index([activo])
+  @@index([creadoEn])
+}
+
+model UsuarioPermiso {
+  id            String    @id @default(cuid())
+  usuarioId     String
+  permisoId     String
+  concedido     Boolean   @default(true) // false = revocación explícita de un permiso base
+  otorgadoPorId String
+  usuario       Usuario   @relation("PermisoDe", fields: [usuarioId], references: [id])
+  otorgadoPor   Usuario   @relation("PermisoOtorgadoPor", fields: [otorgadoPorId], references: [id])
+  permiso       Permiso   @relation(fields: [permisoId], references: [id])
+  motivo        String?
+  vigenteHasta  DateTime?
+  creadoEn      DateTime  @default(now())
+
+  @@unique([usuarioId, permisoId])
+  @@index([permisoId])
+  @@index([otorgadoPorId])
+  @@index([creadoEn])
+}
+
+model UsuarioAlmacen {
+  usuarioId String
+  almacenId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+  almacen   Almacen @relation(fields: [almacenId], references: [id])
+
+  @@id([usuarioId, almacenId])
+  @@index([usuarioId])
+  @@index([almacenId])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  usuarioId  String
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id])
+  tokenHash  String    @unique
+  familia    String // detección de reuso → revoca toda la familia
+  expiraEn   DateTime
+  revocadoEn DateTime?
+  ip         String?
+  userAgent  String?
+  creadoEn   DateTime  @default(now())
+
+  @@index([usuarioId])
+  @@index([creadoEn])
+}
+
+// ───────────── ALMACENES Y CATÁLOGO ─────────────
+model Almacen {
+  eliminadoEn    DateTime?
+  kits           KitAlmacen[]
+  id             String           @id @default(cuid())
+  clave          String           @unique // "KEP", "COL", "MDX", "HYL", "LAM", "MIN", "PEL1", "HYL3"
+  nombre         String
+  tipo           TipoAlmacen
+  almacenPadreId String?
+  almacenPadre   Almacen?         @relation("Red", fields: [almacenPadreId], references: [id])
+  hijos          Almacen[]        @relation("Red")
+  responsableId  String?
+  direccion      String?
+  activo         Boolean          @default(true)
+  existencias    Existencia[]
+  usuarios       UsuarioAlmacen[]
+  creadoEn       DateTime         @default(now())
+
+  @@index([nombre])
+  @@index([almacenPadreId])
+  @@index([responsableId])
+  @@index([activo])
+  @@index([creadoEn])
+}
+
+model CategoriaArticulo {
+  id        String     @id @default(cuid())
+  nombre    String     @unique // "Protección de alturas", "Abrasivos", "Llaves", ...
+  articulos Articulo[]
+}
+
+model Articulo {
+  iconoLucide                 String               @default("Box")
+  eliminadoEn                 DateTime?
+  kits                        KitAlmacenArticulo[]
+  id                          String               @id @default(cuid())
+  sku                         String               @unique // generado: ART-00001
+  claveCompras                String? // clave original del xlsx (NO única, tipo UNSPSC)
+  nombre                      String
+  descripcion                 String?
+  marca                       String?
+  modelo                      String?
+  categoriaId                 String?
+  categoria                   CategoriaArticulo?   @relation(fields: [categoriaId], references: [id])
+  tipo                        TipoArticulo
+  modoControl                 ModoControl
+  unidad                      String               @default("PZA") // PZA, PAR, CJA, MT, LT, KG, JGO
+  codigoBarras                String?              @unique // EAN/Code128 del fabricante (pistola)
+  codigoQR                    String               @unique // QR de producto (consumibles/lote)
+  requiereAutorizacion        Boolean              @default(false)
+  esAlturas                   Boolean              @default(false)
+  requiereInspeccion          Boolean              @default(false)
+  diasVigenciaInspeccion      Int? // ej. 30 / 90 / 180
+  cursoRequeridoId            String? // ej. "Trabajo en alturas"
+  cursoRequerido              Curso?               @relation(fields: [cursoRequeridoId], references: [id])
+  limiteCantidad              Decimal?             @db.Decimal(12, 3) // ej. 5 (pares de guantes)
+  limitePeriodoDias           Int? // ej. 7  → "5 por semana" (solo AVISA)
+  esRetornable                Boolean              @default(true) // false = consumible: no se reclama en baja
+  descuentoNominaSiNoDevuelve Boolean              @default(false) // camisola, casco, mascarilla
+  vidaUtilDias                Int?
+  costoPromedio               Decimal              @default(0) @db.Decimal(14, 4)
+  ultimoCosto                 Decimal?             @db.Decimal(14, 4)
+  esRentado                   Boolean              @default(false)
+  fotoKey                     String?
+  activo                      Boolean              @default(true)
+  variantes                   VarianteArticulo[]
+  existencias                 Existencia[]
+  piezas                      Pieza[]
+  creadoEn                    DateTime             @default(now())
+  actualizadoEn               DateTime             @updatedAt
+
+  @@index([nombre])
+  @@index([categoriaId])
+  @@index([cursoRequeridoId])
+  @@index([activo])
+  @@index([creadoEn])
+}
+
+model VarianteArticulo {
+  id          String       @id @default(cuid())
+  articuloId  String
+  articulo    Articulo     @relation(fields: [articuloId], references: [id])
+  sku         String       @unique // ART-00012-27-MET
+  talla       String?
+  color       String?
+  tipo        String? // "metatarso", "fundidor", "agujetas", "piel", "afelpado", "claro", "oscuro"
+  codigoQR    String       @unique
+  activo      Boolean      @default(true)
+  existencias Existencia[]
+
+  @@index([articuloId])
+  @@index([activo])
+}
+
+model Existencia {
+  varianteClave        String            @default("")
+  cantidadNoDisponible Decimal           @default(0) @db.Decimal(12, 3)
+  pasillo              String?
+  estante              String?
+  nivel                String?
+  id                   String            @id @default(cuid())
+  almacenId            String
+  articuloId           String
+  varianteId           String?
+  almacen              Almacen           @relation(fields: [almacenId], references: [id])
+  articulo             Articulo          @relation(fields: [articuloId], references: [id])
+  variante             VarianteArticulo? @relation(fields: [varianteId], references: [id])
+  cantidad             Decimal           @default(0) @db.Decimal(12, 3) // disponible
+  cantidadTransito     Decimal           @default(0) @db.Decimal(12, 3)
+  stockMinimo          Decimal           @default(0) @db.Decimal(12, 3) // POR ALMACÉN
+  stockMaximo          Decimal?          @db.Decimal(12, 3)
+  ubicacionFisica      String? // "Rack A-3"
+  actualizadoEn        DateTime          @updatedAt
+
+  @@unique([almacenId, articuloId, varianteClave])
+  @@unique([almacenId, articuloId, varianteId])
+  @@index([articuloId])
+  @@index([varianteId])
+}
+
+model Pieza {
+  pasillo            String?
+  estante            String?
+  nivel              String?
+  ubicacionNota      String?
+  id                 String          @id @default(cuid())
+  articuloId         String
+  articulo           Articulo        @relation(fields: [articuloId], references: [id])
+  varianteId         String?
+  codigoInterno      String          @unique // ej. ALT-024, HER-0153
+  numeroSerie        String?
+  codigoQR           String          @unique // payload firmado (sección 11)
+  talla              String?
+  estado             EstadoPieza     @default(APTA)
+  ubicacion          UbicacionPieza  @default(EN_ALMACEN)
+  almacenId          String?
+  empleadoAsignadoId String?
+  empleadoAsignado   Empleado?       @relation(fields: [empleadoAsignadoId], references: [id])
+  fechaFabricacion   DateTime?
+  fechaAlta          DateTime        @default(now())
+  fechaCaducidad     DateTime? // arneses: vida útil del fabricante
+  proximaInspeccion  DateTime?
+  costoAdquisicion   Decimal?        @db.Decimal(14, 2)
+  esRentada          Boolean         @default(false)
+  rentaId            String?
+  inspecciones       Inspeccion[]
+  mantenimientos     Mantenimiento[]
+  activo             Boolean         @default(true)
+  actualizadoEn      DateTime        @updatedAt
+
+  @@index([articuloId])
+  @@index([varianteId])
+  @@index([estado])
+  @@index([almacenId])
+  @@index([empleadoAsignadoId])
+  @@index([rentaId])
+  @@index([activo])
+}
+
+model Inspeccion {
+  id            String              @id @default(cuid())
+  piezaId       String
+  pieza         Pieza               @relation(fields: [piezaId], references: [id])
+  inspectorId   String
+  fecha         DateTime            @default(now())
+  checklist     Json // { etiquetas, costuras, cintas, herrajes, conectores, desgaste, quimicos, ... : "OK"|"FALLA" }
+  resultado     ResultadoInspeccion
+  observaciones String?
+  fotosKeys     String[]
+  vigenteHasta  DateTime
+  movimientoId  String? // si se hizo durante una entrega/devolución
+
+  @@index([piezaId])
+  @@index([inspectorId])
+  @@index([fecha])
+  @@index([movimientoId])
+}
+
+model Mantenimiento {
+  id              String    @id @default(cuid())
+  piezaId         String
+  pieza           Pieza     @relation(fields: [piezaId], references: [id])
+  tipo            String // PREVENTIVO, CORRECTIVO, CALIBRACION
+  proveedorId     String?
+  fechaEnvio      DateTime
+  fechaRetorno    DateTime?
+  costo           Decimal?  @db.Decimal(14, 2)
+  resultado       String?
+  registradoPorId String
+
+  @@index([piezaId])
+  @@index([proveedorId])
+  @@index([registradoPorId])
+}
+
+// ───────────── PERSONAL (RH) ─────────────
+model Empleado {
+  activo                Boolean         @default(true)
+  eliminadoEn           DateTime?
+  riesgo                String          @default("VERDE")
+  motivosRiesgo         String[]
+  id                    String          @id @default(cuid())
+  numeroEmpleado        String          @unique // ej. 12345 / gafete
+  nombre                String
+  apellidoPaterno       String
+  apellidoMaterno       String?
+  nss                   String?         @unique
+  curp                  String?         @unique
+  rfc                   String?
+  categoria             String? // puesto / categoría (RH-CE-01)
+  puesto                String?
+  areaTrabajo           String?
+  obra                  String? // contrato u orden, ej. LC-2026-001
+  companiaContratista   String?
+  administradorContrato String?
+  supervisorId          String? // Usuario supervisor
+  almacenBaseId         String?
+  salarioDiario         Decimal?        @db.Decimal(10, 2)
+  fechaInicio           DateTime?
+  fechaTerminacion      DateTime?
+  numeroTarjeta         String? // credencial contratista (Kardex)
+  fechaEmisionTarjeta   DateTime?
+  telefonoWhatsapp      String? // E.164
+  tallaCamisola         String?
+  tallaPantalon         String?
+  tallaCalzado          String?
+  tallaGuante           String?
+  tallaArnes            String?
+  gafeteQR              String          @unique
+  fotoKey               String?
+  estatus               EstatusEmpleado @default(ACTIVO)
+  observaciones         String?
+  capacitaciones        Capacitacion[]
+  piezasAsignadas       Pieza[]
+  asignaciones          Asignacion[]
+  usuario               Usuario?
+  creadoEn              DateTime        @default(now())
+  actualizadoEn         DateTime        @updatedAt
+
+  @@index([activo])
+  @@index([riesgo])
+  @@index([nombre])
+  @@index([supervisorId])
+  @@index([almacenBaseId])
+  @@index([estatus])
+  @@index([creadoEn])
+}
+
+model Curso {
+  id                 String         @id @default(cuid())
+  clave              String         @unique // ej. "CBS-EXT"
+  nombre             String // "Curso básico de seguridad - Externo", "Trabajo en alturas"
+  vigenciaMeses      Int // ej. 12
+  esRequisitoIngreso Boolean        @default(false)
+  activo             Boolean        @default(true)
+  capacitaciones     Capacitacion[]
+  articulos          Articulo[]
+
+  @@index([nombre])
+  @@index([activo])
+}
+
+model Capacitacion {
+  id              String   @id @default(cuid())
+  empleadoId      String
+  cursoId         String
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  curso           Curso    @relation(fields: [cursoId], references: [id])
+  fechaCurso      DateTime
+  vigenciaHasta   DateTime
+  instructor      String?
+  constanciaKey   String? // DC-3 / constancia escaneada
+  registradoPorId String
+  creadoEn        DateTime @default(now())
+
+  @@index([empleadoId])
+  @@index([cursoId])
+  @@index([registradoPorId])
+  @@index([creadoEn])
+}
+
+// ───────────── MOVIMIENTOS (KARDEX DE INVENTARIO) ─────────────
+model Movimiento {
+  evidenciaFirmaPdf         String?
+  evidenciaFirmaTipo        String?
+  fotoArticuloId            String?
+  firmaArchivoId            String?
+  comprobanteArchivoId      String?
+  borradorId                String?             @unique
+  tiempoEntregaSegundos     Int?
+  autorizadoPorNombre       String?
+  id                        String              @id @default(cuid())
+  folio                     String              @unique // ver 6.5
+  tipo                      TipoMovimiento
+  estado                    EstadoMovimiento    @default(VIGENTE)
+  almacenId                 String // almacén donde impacta
+  almacenDestinoId          String? // traspasos
+  empleadoId                String? // trabajador (entregas/devoluciones)
+  supervisorId              String?
+  usuarioId                 String // quien registra (almacenista)
+  solicitudId               String?
+  traspasoId                String?
+  requisicionId             String?
+  proveedorId               String?
+  rentaId                   String?
+  obra                      String?
+  motivo                    String?
+  observaciones             String?
+  cancelaMovimientoId       String?             @unique // si tipo = CANCELACION
+  canceladoPorMovimientoId  String?             @unique
+  avisoExcedido             Boolean             @default(false) // se superó algún límite y se continuó
+  avisos                    Json? // [{codigo, mensaje, confirmadoPorId, fecha}]
+  firmaEntregaKey           String? // firma digital opcional (canvas) además de la de pluma
+  firmaRecibeKey            String?
+  fechaCompromisoDevolucion DateTime?
+  fecha                     DateTime            @default(now())
+  detalles                  MovimientoDetalle[]
+  documentos                Documento[]
+
+  @@index([fotoArticuloId])
+  @@index([firmaArchivoId])
+  @@index([comprobanteArchivoId])
+  @@index([almacenId])
+  @@index([almacenDestinoId])
+  @@index([empleadoId])
+  @@index([supervisorId])
+  @@index([usuarioId])
+  @@index([solicitudId])
+  @@index([traspasoId])
+  @@index([requisicionId])
+  @@index([proveedorId])
+  @@index([rentaId])
+  @@index([fecha])
+}
+
+model MovimientoDetalle {
+  id                  String        @id @default(cuid())
+  movimientoId        String
+  movimiento          Movimiento    @relation(fields: [movimientoId], references: [id])
+  articuloId          String
+  varianteId          String?
+  piezaId             String? // obligatorio si modoControl = SERIE
+  cantidad            Decimal       @db.Decimal(12, 3)
+  costoUnitario       Decimal       @db.Decimal(14, 4) // costo promedio vigente al momento
+  estadoSalida        EstadoFisico?
+  estadoRetorno       EstadoFisico?
+  talla               String?
+  saldoAlmacenDespues Decimal       @db.Decimal(12, 3) // saldo resultante (kardex)
+  asignacionId        String?
+  observaciones       String?
+
+  @@index([movimientoId])
+  @@index([articuloId])
+  @@index([varianteId])
+  @@index([piezaId])
+  @@index([asignacionId])
+}
+
+model Asignacion {
+  fotoEntregaId       String?
+  fotoRetornoId       String?
+  id                  String    @id @default(cuid())
+  empleadoId          String
+  empleado            Empleado  @relation(fields: [empleadoId], references: [id])
+  articuloId          String
+  varianteId          String?
+  piezaId             String?
+  almacenOrigenId     String
+  movimientoEntregaId String
+  cantidadEntregada   Decimal   @db.Decimal(12, 3)
+  cantidadDevuelta    Decimal   @default(0) @db.Decimal(12, 3)
+  cantidadPerdida     Decimal   @default(0) @db.Decimal(12, 3)
+  saldo               Decimal   @db.Decimal(12, 3) // pendiente por devolver
+  esRetornable        Boolean // copiado del artículo al entregar
+  fechaEntrega        DateTime
+  fechaCompromiso     DateTime?
+  cerrada             Boolean   @default(false)
+  actualizadoEn       DateTime  @updatedAt
+
+  @@index([empleadoId, cerrada])
+  @@index([fotoEntregaId])
+  @@index([fotoRetornoId])
+  @@index([articuloId])
+  @@index([varianteId])
+  @@index([piezaId])
+  @@index([almacenOrigenId])
+  @@index([movimientoEntregaId])
+}
+
+model Traspaso {
+  id                  String         @id @default(cuid())
+  folio               String         @unique
+  almacenOrigenId     String
+  almacenDestinoId    String
+  estado              EstadoTraspaso @default(EN_TRANSITO)
+  solicitudId         String?
+  enviadoPorId        String
+  recibidoPorId       String?
+  fechaEnvio          DateTime       @default(now())
+  fechaRecepcion      DateTime?
+  diferencias         Json? // [{articuloId, enviado, recibido, motivo}]
+  movimientoSalidaId  String?        @unique
+  movimientoEntradaId String?        @unique
+
+  @@index([almacenOrigenId])
+  @@index([almacenDestinoId])
+  @@index([estado])
+  @@index([solicitudId])
+  @@index([enviadoPorId])
+  @@index([recibidoPorId])
+}
+
+// ───────────── SOLICITUDES Y AUTORIZACIONES ─────────────
+model Solicitud {
+  id               String             @id @default(cuid())
+  folio            String             @unique
+  tipo             TipoSolicitud
+  estado           EstadoSolicitud    @default(PENDIENTE)
+  solicitanteId    String
+  empleadoId       String? // para quién (USO)
+  almacenId        String // almacén que surte
+  almacenDestinoId String? // MATERIAL entre almacenes
+  obra             String?
+  tarea            String? // ej. "Trabajo en alturas, nave 3"
+  fechaRequerida   DateTime?
+  justificacion    String?
+  urgente          Boolean            @default(false)
+  renglones        SolicitudRenglon[]
+  autorizaciones   Autorizacion[]
+  creadoEn         DateTime           @default(now())
+  actualizadoEn    DateTime           @updatedAt
+
+  @@index([estado])
+  @@index([solicitanteId])
+  @@index([empleadoId])
+  @@index([almacenId])
+  @@index([almacenDestinoId])
+  @@index([creadoEn])
+}
+
+model SolicitudRenglon {
+  id                         String    @id @default(cuid())
+  solicitudId                String
+  solicitud                  Solicitud @relation(fields: [solicitudId], references: [id])
+  articuloId                 String?
+  descripcionLibre           String? // para compras de artículos que no existen en catálogo
+  varianteId                 String?
+  cantidad                   Decimal   @db.Decimal(12, 3)
+  cantidadAprobada           Decimal?  @db.Decimal(12, 3)
+  cantidadSurtida            Decimal   @default(0) @db.Decimal(12, 3)
+  unidad                     String?
+  marcaSugerida              String?
+  requiereCertificadoCalidad Boolean   @default(false)
+
+  @@index([solicitudId])
+  @@index([articuloId])
+  @@index([varianteId])
+}
+
+model Autorizacion {
+  id            String    @id @default(cuid())
+  solicitudId   String
+  solicitud     Solicitud @relation(fields: [solicitudId], references: [id])
+  autorizadorId String
+  decision      String // APROBADA | RECHAZADA | PARCIAL
+  comentario    String?
+  nivel         Int // nivel del rol que decidió
+  fecha         DateTime  @default(now())
+
+  @@index([solicitudId])
+  @@index([autorizadorId])
+  @@index([fecha])
+}
+
+// ───────────── COMPRAS, PROVEEDORES, RENTAS ─────────────
+model Proveedor {
+  id          String  @id @default(cuid())
+  rfc         String? @unique
+  razonSocial String
+  contacto    String?
+  telefono    String?
+  email       String?
+  activo      Boolean @default(true)
+
+  @@index([activo])
+}
+
+model Requisicion {
+  id             String               @id @default(cuid())
+  folio          String               @unique
+  solicitudId    String?              @unique
+  nombreContrato String?
+  numeroContrato String?
+  almacenId      String
+  solicitanteId  String
+  aprobadaPorId  String?
+  estado         EstadoRequisicion    @default(PENDIENTE)
+  renglones      RequisicionRenglon[]
+  ordenes        OrdenCompra[]
+  documentoId    String?
+  creadoEn       DateTime             @default(now())
+  aprobadaEn     DateTime?
+
+  @@index([almacenId])
+  @@index([solicitanteId])
+  @@index([aprobadaPorId])
+  @@index([estado])
+  @@index([documentoId])
+  @@index([creadoEn])
+}
+
+model RequisicionRenglon {
+  id                 String      @id @default(cuid())
+  requisicionId      String
+  requisicion        Requisicion @relation(fields: [requisicionId], references: [id])
+  numero             Int
+  articuloId         String?
+  descripcion        String
+  marca              String?
+  cantidad           Decimal     @db.Decimal(12, 3)
+  unidad             String
+  fechaEntrega       DateTime?
+  certificadoCalidad Boolean     @default(false)
+
+  @@index([requisicionId])
+  @@index([articuloId])
+}
+
+model OrdenCompra {
+  id                   String       @id @default(cuid())
+  folio                String       @unique
+  requisicionId        String?
+  requisicion          Requisicion? @relation(fields: [requisicionId], references: [id])
+  proveedorId          String
+  subtotal             Decimal      @db.Decimal(14, 2)
+  iva                  Decimal      @db.Decimal(14, 2)
+  total                Decimal      @db.Decimal(14, 2)
+  estadoPago           EstadoPago   @default(PENDIENTE)
+  fechaEmision         DateTime     @default(now())
+  fechaEntregaEsperada DateTime?
+  renglones            Json // [{articuloId, descripcion, cantidad, precioUnitario, importe}]
+  pagos                Pago[]
+  creadoPorId          String
+
+  @@index([requisicionId])
+  @@index([proveedorId])
+  @@index([creadoPorId])
+}
+
+model Pago {
+  id              String       @id @default(cuid())
+  ordenCompraId   String?
+  ordenCompra     OrdenCompra? @relation(fields: [ordenCompraId], references: [id])
+  rentaId         String?
+  monto           Decimal      @db.Decimal(14, 2)
+  metodo          String // TRANSFERENCIA, CHEQUE, EFECTIVO, TARJETA
+  referencia      String?
+  fecha           DateTime
+  comprobanteKey  String?
+  registradoPorId String
+  Renta           Renta?       @relation(fields: [rentaId], references: [id])
+
+  @@index([ordenCompraId])
+  @@index([rentaId])
+  @@index([fecha])
+  @@index([registradoPorId])
+}
+
+model Renta {
+  id              String    @id @default(cuid())
+  folio           String    @unique
+  proveedorId     String
+  articuloId      String
+  cantidad        Decimal   @db.Decimal(12, 3)
+  costoPeriodo    Decimal   @db.Decimal(14, 2)
+  periodicidad    String // DIA, SEMANA, MES
+  fechaInicio     DateTime
+  fechaFinPactada DateTime
+  fechaDevolucion DateTime?
+  almacenId       String
+  estado          String    @default("ACTIVA") // ACTIVA, DEVUELTA, VENCIDA
+  pagos           Pago[]
+
+  @@index([proveedorId])
+  @@index([articuloId])
+  @@index([almacenId])
+  @@index([estado])
+}
+
+model Entrada {
+  id              String    @id @default(cuid())
+  folio           String    @unique
+  almacenId       String
+  proveedorId     String?
+  ordenCompraId   String?
+  facturaNumero   String?
+  facturaKey      String?
+  registradaPorId String
+  autorizadaPorId String?
+  estado          String    @default("PENDIENTE") // PENDIENTE, AUTORIZADA, RECHAZADA
+  renglones       Json // [{articuloId, varianteId, cantidad, costoUnitario, series?: string[]}]
+  movimientoId    String?   @unique
+  creadoEn        DateTime  @default(now())
+  autorizadaEn    DateTime?
+
+  @@index([almacenId])
+  @@index([proveedorId])
+  @@index([ordenCompraId])
+  @@index([registradaPorId])
+  @@index([autorizadaPorId])
+  @@index([estado])
+  @@index([creadoEn])
+}
+
+// ───────────── BAJAS ─────────────
+model Baja {
+  id                   String     @id @default(cuid())
+  folio                String     @unique
+  empleadoId           String
+  motivo               String // motivo de separación
+  estado               EstadoBaja @default(INICIADA)
+  iniciadaPorId        String
+  forzadaPorId         String? // solo ADMIN_PRINCIPAL
+  justificacionForzado String?
+  pendientes           Json? // foto de asignaciones retornables abiertas al cerrar
+  importePendiente     Decimal?   @db.Decimal(14, 2)
+  vistoBuenoAreas      Json? // [{almacenId:"PEL1", observaciones, usuarioId, fecha}, HYL3, COL]
+  documentoNoAdeudoId  String?
+  creadoEn             DateTime   @default(now())
+  cerradaEn            DateTime?
+
+  @@index([empleadoId])
+  @@index([estado])
+  @@index([iniciadaPorId])
+  @@index([forzadaPorId])
+  @@index([documentoNoAdeudoId])
+  @@index([creadoEn])
+}
+
+// ───────────── DOCUMENTOS, FOLIOS, ALERTAS, AUDITORÍA ─────────────
+model Documento {
+  cloud_storage_path     String?
+  isPublic               Boolean        @default(false)
+  id                     String         @id @default(cuid())
+  folio                  String         @unique // mismo folio del movimiento/solicitud que lo origina
+  tipo                   TipoDocumento
+  movimientoId           String?
+  movimiento             Movimiento?    @relation(fields: [movimientoId], references: [id])
+  entidad                String // "Movimiento", "Baja", "Requisicion", ...
+  entidadId              String
+  storageKey             String // documentos/2026/10/VE-KEP-2026-000123.pdf
+  urlPublicaVerificacion String // https://app/verificar/<token> (lo que codifica el QR)
+  tokenVerificacion      String         @unique
+  hashSha256             String
+  tamanoBytes            Int
+  generadoPorId          String
+  escaneoFirmadoKey      String? // foto/PDF del papel firmado con pluma (subida posterior)
+  whatsappEstado         EstadoWhatsapp @default(NO_ENVIADO)
+  whatsappSid            String?
+  whatsappDestino        String?
+  whatsappError          String?
+  creadoEn               DateTime       @default(now())
+
+  @@index([movimientoId])
+  @@index([entidadId])
+  @@index([generadoPorId])
+  @@index([creadoEn])
+}
+
+model ContadorFolio {
+  serie        String // "VE", "DV", "TR", "EN", "RQ", "SO", "BJ", "NA", "OC", "RN"
+  almacenClave String
+  anio         Int
+  ultimo       Int    @default(0)
+
+  @@id([serie, almacenClave, anio])
+}
+
+model Alerta {
+  id                 String          @id @default(cuid())
+  tipo               TipoAlerta
+  severidad          SeveridadAlerta
+  almacenId          String?
+  articuloId         String?
+  piezaId            String?
+  empleadoId         String?
+  mensaje            String
+  datos              Json?
+  claveDeduplicacion String          @unique // evita duplicar la misma alerta abierta
+  resuelta           Boolean         @default(false)
+  resueltaPorId      String?
+  resueltaEn         DateTime?
+  creadoEn           DateTime        @default(now())
+
+  @@index([almacenId])
+  @@index([articuloId])
+  @@index([piezaId])
+  @@index([empleadoId])
+  @@index([resueltaPorId])
+  @@index([creadoEn])
+}
+
+model Notificacion {
+  id        String   @id @default(cuid())
+  usuarioId String
+  titulo    String
+  cuerpo    String
+  enlace    String?
+  leida     Boolean  @default(false)
+  canal     String   @default("APP") // APP, WHATSAPP
+  creadoEn  DateTime @default(now())
+
+  @@index([usuarioId])
+  @@index([creadoEn])
+}
+
+model Auditoria {
+  id        String   @id @default(cuid())
+  usuarioId String?
+  accion    String // "CREAR", "ACTUALIZAR", "ELIMINAR_LOGICO", "LOGIN", "LOGIN_FALLIDO", "PERMISO_OTORGADO", "AVISO_IGNORADO", "BAJA_FORZADA"...
+  entidad   String
+  entidadId String?
+  antes     Json?
+  despues   Json?
+  ip        String?
+  userAgent String?
+  fecha     DateTime @default(now())
+
+  @@index([entidad, entidadId])
+  @@index([usuarioId, fecha])
+  @@index([entidadId])
+  @@index([fecha])
+}
+
+model SolicitudRegistroUsuario {
+  id             String    @id @default(cuid())
+  creadoPorId    String
+  creadoPor      Usuario   @relation("RegistroCreado", fields: [creadoPorId], references: [id])
+  nombreCompleto String
+  numeroNomina   String    @unique
+  puesto         String
+  area           String?
+  email          String    @unique
+  rolSolicitado  RolCodigo
+  almacenes      String[]
+  estado         String    @default("PENDIENTE")
+  aprobadoPorId  String?
+  aprobadoPor    Usuario?  @relation("RegistroAprobado", fields: [aprobadoPorId], references: [id])
+  notas          String?
+  creadoEn       DateTime  @default(now())
+  actualizadoEn  DateTime  @updatedAt
+  aprobadoEn     DateTime?
+
+  @@index([estado, rolSolicitado])
+  @@index([creadoPorId])
+  @@index([aprobadoPorId])
+}
+
+model KitAlmacen {
+  id            String               @id @default(cuid())
+  nombre        String
+  descripcion   String?
+  almacenId     String
+  almacen       Almacen              @relation(fields: [almacenId], references: [id])
+  activo        Boolean              @default(true)
+  creadoPorId   String
+  creadoEn      DateTime             @default(now())
+  actualizadoEn DateTime             @updatedAt
+  articulos     KitAlmacenArticulo[]
+
+  @@index([almacenId, activo])
+}
+
+model KitAlmacenArticulo {
+  id         String     @id @default(cuid())
+  kitId      String
+  articuloId String
+  cantidad   Int        @default(1)
+  kit        KitAlmacen @relation(fields: [kitId], references: [id])
+  articulo   Articulo   @relation(fields: [articuloId], references: [id])
+
+  @@unique([kitId, articuloId])
+  @@index([articuloId])
+}
+
+model Archivo {
+  id                 String   @id @default(cuid())
+  usuarioId          String
+  nombre             String
+  contentType        String
+  cloud_storage_path String   @unique
+  isPublic           Boolean  @default(false)
+  hash               String
+  bytes              Int
+  creadoEn           DateTime @default(now())
+
+  @@index([usuarioId, creadoEn])
+}
+
+model BorradorEntrega {
+  id         String   @id @default(cuid())
+  usuarioId  String
+  almacenId  String
+  empleadoId String
+  folio      String   @unique
+  datos      Json
+  confirmado Boolean  @default(false)
+  creadoEn   DateTime @default(now())
+
+  @@index([usuarioId, confirmado])
+  @@index([almacenId])
+  @@index([empleadoId])
+}
+
+model MetricaDiaria {
+  id           String @id @default(cuid())
+  almacenId    String
+  dia          String
+  entregas     Int    @default(0)
+  devoluciones Int    @default(0)
+  traspasos    Int    @default(0)
+
+  @@unique([almacenId, dia])
+  @@index([dia])
+}
+
+model ResumenAlmacen {
+  almacenId       String   @id
+  valor           Decimal  @default(0) @db.Decimal(14, 2)
+  piezasPrestadas Decimal  @default(0) @db.Decimal(12, 3)
+  actualizadoEn   DateTime @updatedAt
+}
+
+model OperacionUnica {
+  id           String   @id
+  movimientoId String
+  creadoEn     DateTime @default(now())
+}

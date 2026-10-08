@@ -1,0 +1,3 @@
+import {pdfBuffer} from '../lib/pdf-service';
+import {prisma} from '../lib/db';
+async function main(){const b=await pdfBuffer({content:[{text:'IMHOTEP — Comprobante de prueba'},'Generación de PDF en español.']});if(b.subarray(0,4).toString()!=='%PDF')throw new Error('PDF inválido');console.log('PDF: CORRECTO',b.length,'bytes');await prisma.empleado.updateMany({where:{id:'emp-1'},data:{almacenBaseId:'KEP'}});await prisma.$disconnect();}main().catch((e:unknown)=>{console.error(e);process.exit(1);});

@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.build/
+.deploy/
+.env
+.env.local
+.abacus.donotdelete
+instrumentation-client.js
+tsconfig.tsbuildinfo
+.yarn/
+*.log
+assets/
+data/references/
